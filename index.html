@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LP手数料トラッカー</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f2f3f5;
+    --card-bg: rgba(255,255,255,0.72);
+    --card-border: rgba(0,0,0,0.08);
+    --text: #1c1c1e;
+    --muted: #6b6b70;
+    --accent: #0a84ff;
+    --positive: #1fa855;
+    --negative: #e0403f;
+    --danger-bg: #fdecea;
+    --danger-text: #b3261e;
+    --shadow: 0 4px 24px rgba(0,0,0,0.06);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e10;
+      --card-bg: rgba(40,40,44,0.72);
+      --card-border: rgba(255,255,255,0.08);
+      --text: #f2f2f4;
+      --muted: #9a9aa0;
+      --accent: #409cff;
+      --positive: #34c268;
+      --negative: #ff5b56;
+      --danger-bg: #3a1414;
+      --danger-text: #ff8a80;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    padding: 16px;
+    padding-bottom: 64px;
+  }
+  .container { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 20px; margin: 8px 0 0; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field .row { display: flex; gap: 8px; align-items: center; }
+  input[type="number"], input[type="text"], input[type="date"], input[type="time"] {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--card-border);
+    background: rgba(127,127,127,0.08);
+    color: var(--text);
+    font-size: 15px;
+  }
+  button {
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.primary { background: var(--accent); color: white; width: 100%; }
+  button.secondary { background: rgba(127,127,127,0.15); color: var(--text); }
+  button.ghost { background: transparent; color: var(--accent); padding: 6px 8px; }
+  button.danger-outline { background: transparent; color: var(--negative); border: 1px solid var(--negative); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .price-badge { font-size: 11px; color: var(--muted); }
+  .hero { display: flex; gap: 12px; }
+  .hero .stat { flex: 1; text-align: center; padding: 12px 8px; }
+  .hero .stat .value { font-size: 22px; font-weight: 700; }
+  .hero .stat .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .hero .stat .hero-caption { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.5; opacity: 0.8; }
+  .apr-badge { font-size: 11px; font-weight: 700; color: var(--accent); vertical-align: middle; }
+  .apr-badge.muted { color: var(--muted); font-weight: 400; }
+  .value.positive { color: var(--positive); }
+  .value.negative { color: var(--negative); }
+  .compare { display: flex; justify-content: space-between; font-size: 14px; }
+  .compare .col { text-align: center; flex: 1; }
+  .compare .col .v { font-size: 17px; font-weight: 600; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--card-border); }
+  th:first-child, td:first-child { text-align: left; }
+  .epoch-sep-cell { text-align: center !important; font-size: 10px; color: var(--muted); padding: 8px 4px; background: rgba(127,127,127,0.06); }
+  .note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .banner-danger {
+    padding: 12px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+    background: var(--danger-bg); color: var(--danger-text); font-weight: 600;
+  }
+  .build-stamp { text-align: center; font-size: 10px; color: var(--muted); margin-top: 24px; }
+  .hidden { display: none !important; }
+  .form-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .form-actions button { flex: 1; }
+  .undo-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .preview { font-size: 12px; color: var(--muted); background: rgba(127,127,127,0.08); border-radius: 10px; padding: 8px 10px; margin: 8px 0; line-height: 1.6; }
+  .load-more { width: 100%; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>LP手数料トラッカー</h1>
+
+  <div id="integrityBanner" class="card hidden">
+    <div class="banner-danger">データに不整合が見つかりました。書き込み系の操作は一時的に無効化されています。管理メニューの「整合修復」を実行してください。</div>
+  </div>
+
+  <div id="loadingCard" class="card">読み込み中…</div>
+
+  <!-- 初回セットアップ / 基準を修正 -->
+  <div id="setupCard" class="card hidden">
+    <h2 id="setupTitle">初期設定</h2>
+    <div class="field">
+      <label>預入時の評価額(USD)</label>
+      <input type="number" id="setupValue" step="0.01" placeholder="1000.00">
+    </div>
+    <div class="field">
+      <label>預入時のSOL価格(USD) <span class="price-badge" id="setupPriceBadge"></span></label>
+      <div class="row">
+        <input type="number" id="setupPrice" step="0.0001" placeholder="150.00">
+        <button class="secondary" id="setupPriceRefresh">↻</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>発効日</label>
+      <input type="date" id="setupDate">
+    </div>
+    <div class="field">
+      <label>実際に預け入れた時刻(JST、任意)</label>
+      <input type="time" id="setupTime" step="60">
+      <div class="hint">年率(APR)の計算にだけ使います。今まさに預け入れたなら、そのままで構いません。登録が預入より後になった場合はここで正確な時刻を入れてください。</div>
+    </div>
+    <div class="form-actions">
+      <button class="primary" id="setupSubmit">この内容で設定する</button>
+    </div>
+    <button class="danger-outline hidden" id="deleteLatestSetupBtn" style="margin-top:8px;width:100%;">この設定を取り消す</button>
+    <div class="hint" id="setupHint"></div>
+  </div>
+
+  <!-- 日次記録フォーム -->
+  <div id="entryCard" class="card hidden">
+    <h2>今日の記録</h2>
+    <div class="field">
+      <label>今のSOL価格(USD) <span class="price-badge" id="entryPriceBadge"></span></label>
+      <div class="row">
+        <input type="number" id="entryPrice" step="0.0001">
+        <button class="secondary" id="entryPriceRefresh">↻</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>今の評価額(USD)</label>
+      <input type="number" id="entryValue" step="0.01">
+    </div>
+    <button class="primary" id="entrySubmit">記録する</button>
+    <div class="hint" id="entryHint"></div>
+  </div>
+
+  <!-- 出金フォーム -->
+  <div id="withdrawCard" class="card hidden">
+    <h2>出金を記録</h2>
+    <div class="hint" id="withdrawDisabledHint"></div>
+    <div id="withdrawFormBody" class="hidden">
+      <div class="field">
+        <label>出金日</label>
+        <div id="withdrawTodayLabel" style="font-size:15px;"></div>
+      </div>
+      <div class="field">
+        <label>出金額(USD)</label>
+        <input type="number" id="withdrawAmount" step="0.01">
+      </div>
+      <div class="preview" id="withdrawPreview"></div>
+      <button class="primary" id="withdrawSubmit">出金を記録する</button>
+    </div>
+  </div>
+
+  <!-- ヒーロー表示 -->
+  <div id="heroCard" class="card hidden">
+    <div class="hero">
+      <div class="stat">
+        <div class="value" id="claimableValue">$0.00</div>
+        <div class="label">今引き出せる手数料 <span id="aprBadge" class="apr-badge"></span></div>
+        <div class="hero-caption">前回の出金(まだ出金してなければ預入時)からの累計</div>
+        <div class="hero-caption" id="claimableErrorNote"></div>
+      </div>
+      <div class="stat">
+        <div class="value" id="lifetimeValue">$0.00</div>
+        <div class="label">これまでに稼いだ手数料(生涯累計)</div>
+        <div class="hero-caption">出金して確定させた分+左の「今引き出せる手数料」の合計。出金してもこの数字は減りません</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 実際 vs 理論値 -->
+  <div id="compareCard" class="card hidden">
+    <h2>評価額の比較</h2>
+    <div class="compare">
+      <div class="col">
+        <div>実際の評価額</div>
+        <div class="v" id="compareActual">-</div>
+      </div>
+      <div class="col">
+        <div>手数料が0だった場合の評価額</div>
+        <div class="v" id="compareTheoretical">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 記録履歴 -->
+  <div id="historyCard" class="card hidden">
+    <h2>記録履歴</h2>
+    <table>
+      <thead><tr><th>日付</th><th>価格</th><th>評価額</th><th>前回比</th><th>累計(この時点)</th><th></th></tr></thead>
+      <tbody id="historyBody"></tbody>
+    </table>
+    <div class="note">※「前回比」がマイナスのときは、実際に手数料が減ったのではなく価格変動・記録タイミングのズレによるモデル推定の誤差です。</div>
+    <button class="secondary load-more hidden" id="historyLoadMore">さらに表示</button>
+  </div>
+
+  <!-- 出金履歴 -->
+  <div id="withdrawHistoryCard" class="card hidden">
+    <h2>出金履歴</h2>
+    <table>
+      <thead><tr><th>日付</th><th>金額</th><th>うち手数料分</th><th></th></tr></thead>
+      <tbody id="withdrawHistoryBody"></tbody>
+    </table>
+    <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。</div>
+  </div>
+
+  <div class="build-stamp">build 2026-09-14 00:07</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API_BASE = 'https://script.google.com/macros/s/AKfycbwp99JR-rfxQfoQKjTIqy2TW8td4LprC5JvodrK2nJd_AJVVXJGQmFAQDU6Ox9XAYUHSw/exec';
+  var HISTORY_PAGE_SIZE = 100;
+
+  var state = null;       // 最新のstate
+  var priceCache = null;  // 直近取得したSOL価格 {price, priceSource, fetchedAt, fromCache, stale}
+  var historyVisibleCount = HISTORY_PAGE_SIZE;
+
+  // ---------- ユーティリティ ----------
+
+  function uuidv4() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function formatUsd(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '-';
+    var sign = n < 0 ? '-' : '';
+    return sign + '$' + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function formatSignedUsd(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '-';
+    return (n >= 0 ? '+' : '-') + '$' + Math.abs(n).toFixed(2);
+  }
+
+  function todayLocalGuess() {
+    // 表示用の初期値のみ。判定はサーバーのstate.todayを正とする。
+    var d = new Date();
+    var y = d.getFullYear(), m = ('0' + (d.getMonth() + 1)).slice(-2), day = ('0' + d.getDate()).slice(-2);
+    return y + '-' + m + '-' + day;
+  }
+
+  function nowTimeLocal() {
+    // 表示用の初期値のみ。実際の解釈(JST)はサーバー側で行う。
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function el(id) { return document.getElementById(id); }
+
+  // ---------- API呼び出し ----------
+
+  async function fetchWithTimeout(url, options, ms) {
+    var ctrl = new AbortController();
+    var t = setTimeout(function () { ctrl.abort(); }, ms);
+    options = options || {};
+    options.signal = ctrl.signal;
+    try {
+      return await fetch(url, options);
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  async function parseApiResponse(res) {
+    var json;
+    try { json = await res.json(); }
+    catch (e) { throw new Error('サーバー応答が不正です(GASの一時的なエラーの可能性があります)'); }
+    if (!json.ok) throw new Error(json.error || '不明なエラー');
+    return json.data;
+  }
+
+  async function apiGet(action) {
+    var res = await fetchWithTimeout(API_BASE + '?action=' + encodeURIComponent(action), {}, 15000);
+    return parseApiResponse(res);
+  }
+
+  async function apiPost(body) {
+    var res = await fetchWithTimeout(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    }, 25000);
+    return parseApiResponse(res);
+  }
+
+  // ---------- 価格取得(自前のsolPriceを呼ぶだけ。stateと直列に呼ぶ) ----------
+
+  async function fetchSolPrice() {
+    try {
+      priceCache = await apiGet('solPrice');
+    } catch (e) {
+      priceCache = null;
+      console.error('価格取得失敗', e);
+    }
+    renderPriceBadges();
+    return priceCache;
+  }
+
+  function priceBadgeText() {
+    if (!priceCache) return '(取得失敗。手入力してください)';
+    var mins = Math.round((Date.now() - priceCache.fetchedAt) / 60000);
+    var label = priceCache.priceSource + '・' + mins + '分前に取得';
+    if (priceCache.stale) label = '取得失敗のため' + label;
+    return label;
+  }
+
+  // 「基準を修正」モード(=既に確定済みの過去のP0を編集している)かどうか。
+  // このモードでは価格欄に入っているのは「今CoinMarketCapから取得した値」ではなく
+  // 「過去に確定させた固定値」なので、取得元・経過時間のバッジを出すと嘘になる。
+  function isEditingBasis() {
+    var cur = currentEpoch();
+    return !!(state && state.canEditSetup && cur && cur.kind === '初回');
+  }
+
+  function renderPriceBadges() {
+    var txt = priceBadgeText();
+    el('setupPriceBadge').textContent = isEditingBasis() ? '(現在の基準の値。書き換えると基準が上書きされます)' : txt;
+    el('entryPriceBadge').textContent = txt;
+    if (!isEditingBasis() && priceCache && el('setupPrice').value === '') el('setupPrice').value = priceCache.price;
+    if (priceCache && el('entryPrice').value === '') el('entryPrice').value = priceCache.price;
+  }
+
+  // ---------- 状態取得・描画 ----------
+
+  async function loadState() {
+    state = await apiGet('state');
+    render();
+  }
+
+  function currentEpoch() {
+    if (!state || state.epochs.length === 0) return null;
+    return state.epochs[state.epochs.length - 1];
+  }
+
+  function isClosed() {
+    var cur = currentEpoch();
+    return cur && cur.kind === 'クローズ';
+  }
+
+  function entriesInEpoch(epochIndex) {
+    return state.entries.filter(function (e) { return e.epochIndex === epochIndex; });
+  }
+
+  function render() {
+    el('loadingCard').classList.add('hidden');
+
+    // データ不整合バナー
+    var integrityBad = state.dataIntegrity && !state.dataIntegrity.ok;
+    el('integrityBanner').classList.toggle('hidden', !integrityBad);
+
+    var cur = currentEpoch();
+    var needsSetup = !cur || cur.kind === 'クローズ';
+
+    // セットアップカードは「新規セットアップが必要」または「修正可能(基準を修正)」のどちらかで表示する。
+    // needsSetupだけで判定すると、稼働中(cur.kind==='初回')でcanEditSetup===trueのケースが
+    // 一度もshow===trueにならず「基準を修正」フォームが永久に表示されない不具合になる。
+    renderSetupCard(needsSetup || state.canEditSetup, integrityBad);
+    renderEntryCard(!!cur, integrityBad);
+    renderWithdrawCard(!!cur, integrityBad);
+
+    var hasData = !!cur;
+    el('heroCard').classList.toggle('hidden', !hasData);
+    el('compareCard').classList.toggle('hidden', !hasData || entriesInEpoch(cur ? cur.index : -1).length === 0);
+    el('historyCard').classList.toggle('hidden', state.entries.length === 0);
+    el('withdrawHistoryCard').classList.toggle('hidden', state.withdrawals.length === 0);
+
+    if (hasData) {
+      el('claimableValue').textContent = formatUsd(state.claimableAmount);
+      el('claimableValue').className = 'value ' + (state.claimableAmount >= 0 ? 'positive' : 'negative');
+      el('lifetimeValue').textContent = formatUsd(state.lifetimeFee);
+      el('lifetimeValue').className = 'value ' + (state.lifetimeFee >= 0 ? 'positive' : 'negative');
+      renderAprBadge(integrityBad);
+      // 価格1%のズレが理論値に与える影響の目安(V0/2×1%)を動的に出す。手数料の実額が
+      // 小さいうちは、この誤差の方が数字を支配することを伝えるための注記。
+      if (cur) {
+        var errMargin = cur.v0 * 0.005;
+        el('claimableErrorNote').textContent =
+          '評価額と理論値の差から求めた推定値です。SOL価格の入力が1%ズレると±' + formatUsd(errMargin) + '程度動きます。手数料が積み上がるまでは数ドル単位で上下します。';
+      }
+    }
+
+    var curEntries = cur ? entriesInEpoch(cur.index) : [];
+    if (curEntries.length > 0) {
+      var last = curEntries[curEntries.length - 1];
+      el('compareActual').textContent = formatUsd(last.value);
+      el('compareTheoretical').textContent = formatUsd(last.theoreticalValue);
+    }
+
+    renderHistory();
+    renderWithdrawHistory();
+    renderPriceBadges(); // 記録成功直後などにentryPrice/setupPriceの表示が古いまま残らないようにする
+  }
+
+  function formatApr(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return '-';
+    var clamped = v, suffix = '';
+    if (Math.abs(v) > 1000) { clamped = v > 0 ? 1000 : -1000; suffix = '超'; }
+    return (clamped >= 0 ? '+' : '') + clamped.toFixed(1) + '%' + suffix;
+  }
+
+  function aprReasonText(reason) {
+    if (reason === 'too_soon') return '計測中(経過1日未満)';
+    if (reason === 'negative_fee') return '一時計測不能(価格変動の影響)';
+    if (reason === 'invalid_ts') return '計測不能';
+    return '—';
+  }
+
+  // データ不整合中はAPRも信用できないので「—」にする(state自体は読み取り可能なままにする方針、計画書119行と同じ考え方)
+  function renderAprBadge(integrityBad) {
+    var badge = el('aprBadge');
+    if (integrityBad) {
+      badge.textContent = '年率 —';
+      badge.className = 'apr-badge muted';
+      badge.title = '';
+      return;
+    }
+    if (state.apr === null) {
+      badge.textContent = '年率 ' + aprReasonText(state.aprReason);
+      badge.className = 'apr-badge muted';
+      badge.title = '';
+      return;
+    }
+    var isLow = state.aprConfidence === 'low';
+    badge.textContent = '年率 ' + formatApr(state.apr) + (isLow ? '(参考値)' : '');
+    badge.className = isLow ? 'apr-badge muted' : 'apr-badge';
+    var titleParts = [];
+    if (state.aprAsOf) titleParts.push(state.aprAsOf + ' 時点');
+    if (isLow) titleParts.push('経過3日未満のため参考値です(価格の読み取り誤差の影響を強く受けます)');
+    badge.title = titleParts.join(' / ');
+  }
+
+  // ---------- セットアップカード ----------
+
+  function renderSetupCard(show, integrityBad) {
+    el('setupCard').classList.toggle('hidden', !show);
+    if (!show) return;
+    var cur = currentEpoch();
+    var isRestart = !!cur && cur.kind === 'クローズ';
+    var canEdit = state.canEditSetup && cur && cur.kind === '初回';
+
+    if (canEdit) {
+      el('setupTitle').textContent = '基準を修正';
+      el('setupValue').value = cur.v0;
+      el('setupPrice').value = cur.p0;
+      el('setupDate').value = cur.startDate;
+      el('setupTime').value = cur.startTime || '';
+    } else {
+      el('setupTitle').textContent = isRestart ? '新しいポジションを始める' : '初期設定';
+      if (el('setupPrice').value === '' && priceCache) el('setupPrice').value = priceCache.price;
+      el('setupDate').value = state.today;
+      if (el('setupTime').value === '') el('setupTime').value = nowTimeLocal();
+    }
+
+    var canDeleteLatest = state.epochs.length >= 2 && cur && cur.kind === '初回' && entriesInEpoch(cur.index).length === 0;
+    el('deleteLatestSetupBtn').classList.toggle('hidden', !canDeleteLatest);
+
+    el('setupSubmit').disabled = integrityBad;
+    el('setupHint').textContent = integrityBad ? 'データ不整合のため操作できません。' : '';
+  }
+
+  el('setupSubmit').addEventListener('click', async function () {
+    var value = parseFloat(el('setupValue').value);
+    var price = parseFloat(el('setupPrice').value);
+    var date = el('setupDate').value || state.today;
+    var cur = currentEpoch();
+    var isEdit = state.canEditSetup && cur && cur.kind === '初回';
+    var btn = this;
+    btn.disabled = true;
+    var time = el('setupTime').value || '';
+    try {
+      state = isEdit
+        ? await apiPost({ action: 'updateSetup', date: date, value: value, price: price, time: time })
+        : await apiPost({ action: 'setupPosition', date: date, value: value, price: price, time: time });
+      el('setupValue').value = '';
+      el('setupPrice').value = '';
+      render();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  el('deleteLatestSetupBtn').addEventListener('click', async function () {
+    if (!confirm('この設定を取り消しますか？')) return;
+    try {
+      state = await apiPost({ action: 'deleteLatestSetup' });
+      render();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  el('setupPriceRefresh').addEventListener('click', async function () {
+    // 「基準を修正」モードでの上書きはほとんど発生しない操作のはずなので、事故防止に2回確認する
+    if (isEditingBasis()) {
+      if (!confirm('現在の基準の価格を、今取得した最新価格で上書きします。よろしいですか？')) return;
+      if (!confirm('本当に上書きしますか？(元の値には戻せません)')) return;
+    }
+    await fetchSolPrice();
+    // ↻は明示的な操作なので、修正モード中でも(renderPriceBadgesの自動プリフィルとは別に)必ず反映する
+    if (priceCache) el('setupPrice').value = priceCache.price;
+  });
+
+  // ---------- 日次記録カード ----------
+
+  function renderEntryCard(show, integrityBad) {
+    el('entryCard').classList.toggle('hidden', !show);
+    if (!show) return;
+    var closed = isClosed();
+    var disabled = integrityBad || closed;
+    el('entrySubmit').disabled = disabled;
+    el('entryPrice').disabled = disabled;
+    el('entryValue').disabled = disabled;
+    el('entryHint').textContent =
+      integrityBad ? 'データ不整合のため操作できません。' :
+      closed ? 'ポジションがクローズされています。先に初期設定を行ってください。' : '';
+  }
+
+  // requestIdは送信のたびに新規発行せず、成功するまで使い回す(リトライ時に同じIDを送って
+  // サーバー側の冪等性ガードを効かせるため。毎回新規だとタイムアウト後の再送で二重登録し得る)。
+  var pendingEntryRequestId = null;
+
+  el('entrySubmit').addEventListener('click', async function () {
+    var price = parseFloat(el('entryPrice').value);
+    var value = parseFloat(el('entryValue').value);
+    var today = state.today;
+    var cur = currentEpoch();
+    var todaysEntries = entriesInEpoch(cur.index).filter(function (e) { return e.date === today; });
+
+    if (todaysEntries.length > 0 && !confirm('本日はすでに記録済みです。それでも記録しますか？')) return;
+
+    var priceSource = (priceCache && Math.abs(priceCache.price - price) < 1e-9) ? priceCache.priceSource : '手入力';
+    // 価格がある程度古いまま自動取得値を使おうとしている場合は注意を促す(このツールは価格1%のズレが
+    // 評価額の数十ドルの誤差に直結するため、鮮度が精度に直結する)
+    if (priceSource !== '手入力' && priceCache && (Date.now() - priceCache.fetchedAt) > 3 * 60 * 1000) {
+      var minsOld = Math.round((Date.now() - priceCache.fetchedAt) / 60000);
+      if (!confirm('価格は' + minsOld + '分前に取得したものです。この間の値動きが手数料の計算に数ドル〜数十ドルの誤差として乗る可能性があります。↻で取り直さずこのまま記録しますか？')) return;
+    }
+    if (!pendingEntryRequestId) pendingEntryRequestId = uuidv4();
+    var btn = this;
+    btn.disabled = true;
+    try {
+      state = await apiPost({
+        action: 'addEntry', date: today, price: price, priceSource: priceSource, value: value,
+        requestId: pendingEntryRequestId
+      });
+      pendingEntryRequestId = null; // 成功したので次回は新規発行
+      el('entryValue').value = '';
+      render();
+    } catch (e) {
+      alert(e.message); // 失敗時はrequestIdを保持したまま(次回リトライで同じIDが飛ぶ)
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  el('entryPriceRefresh').addEventListener('click', async function () {
+    el('entryPrice').value = '';
+    await fetchSolPrice();
+  });
+
+  // ---------- 出金カード ----------
+
+  function todaysLatestEntry() {
+    var cur = currentEpoch();
+    if (!cur) return null;
+    var todays = entriesInEpoch(cur.index).filter(function (e) { return e.date === state.today; });
+    return todays.length ? todays[todays.length - 1] : null;
+  }
+
+  function renderWithdrawCard(show, integrityBad) {
+    el('withdrawCard').classList.toggle('hidden', !show);
+    if (!show) return;
+    var disabledHintEl = el('withdrawDisabledHint');
+    var bodyEl = el('withdrawFormBody');
+    if (integrityBad) {
+      disabledHintEl.textContent = 'データ不整合のため操作できません。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    if (isClosed()) {
+      disabledHintEl.textContent = 'ポジションがクローズされています。先に初期設定を行ってください。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    var todays = todaysLatestEntry();
+    if (!todays) {
+      disabledHintEl.textContent = '先に本日の記録を入力してください。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    disabledHintEl.textContent = '';
+    bodyEl.classList.remove('hidden');
+    el('withdrawTodayLabel').textContent = state.today + '(本日)';
+    renderWithdrawPreview();
+  }
+
+  // 出金額から内訳を計算する純関数。renderWithdrawPreview(表示)とwithdrawSubmit(確認ダイアログ)の
+  // 両方から呼び、計算式の複製を1箇所(このバックエンドと式を揃える関数)だけに保つ。
+  // computeWithdrawalEffect_(Code.gs)と同じ式であることをコメントで明記する。
+  function computeWithdrawPreview(amount) {
+    var todays = todaysLatestEntry();
+    var cur = currentEpoch();
+    if (!todays || !cur || typeof amount !== 'number' || isNaN(amount) || amount <= 0) return null;
+    var fRaw = cur.feeCarry + (todays.value - cur.v0 * Math.sqrt(todays.price / cur.p0));
+    var f = Math.max(fRaw, 0);
+    var realized = Math.min(amount, f);
+    var isClose = amount >= todays.value - 1e-9;
+    var newFeeCarry = isClose ? 0 : Math.max(f - amount, 0);
+    return { f: f, realized: realized, isClose: isClose, newFeeCarry: newFeeCarry };
+  }
+
+  function renderWithdrawPreview() {
+    var amount = parseFloat(el('withdrawAmount').value);
+    var previewEl = el('withdrawPreview');
+    var p = computeWithdrawPreview(amount);
+    el('withdrawSubmit').disabled = false;
+    if (!p) {
+      previewEl.textContent = '出金額を入力すると内訳が表示されます。';
+      return;
+    }
+    var lines = [];
+    lines.push('手数料分 ' + formatUsd(p.realized) + ' / 元本分 ' + formatUsd(Math.max(amount - p.realized, 0)));
+    lines.push('出金後の今引き出せる手数料: ' + formatUsd(p.newFeeCarry));
+    if (p.isClose) {
+      lines.push('※ これは全額出金(ポジションのクローズ)です。');
+      if (p.f > amount + 1e-9) {
+        lines.push('※ 未回収手数料 ' + formatUsd(p.f) + ' のうち ' + formatUsd(amount) + ' のみ確定し、残り ' + formatUsd(p.f - amount) + ' は失われます。');
+      }
+    }
+    previewEl.innerHTML = lines.join('<br>');
+
+    // 本日の評価額を超える出金はサーバーで弾かれるが、フロントでも早期に知らせて送信を止める
+    var todays = todaysLatestEntry();
+    var overLimit = todays && amount > todays.value + 1e-9;
+    el('withdrawSubmit').disabled = !!overLimit;
+    if (overLimit) {
+      previewEl.innerHTML += '<br><span style="color:var(--negative);">※ 出金額が本日の評価額(' + formatUsd(todays.value) + ')を超えています</span>';
+    }
+  }
+
+  el('withdrawAmount').addEventListener('input', function () {
+    pendingWithdrawRequestId = null; // 金額を変えたら別の操作として扱う(冪等性ガードの誤爆防止)
+    renderWithdrawPreview();
+  });
+
+  var pendingWithdrawRequestId = null;
+
+  el('withdrawSubmit').addEventListener('click', async function () {
+    var amount = parseFloat(el('withdrawAmount').value);
+    if (isNaN(amount) || amount <= 0) { alert('出金額を入力してください'); return; }
+
+    var p = computeWithdrawPreview(amount);
+    var confirmMsg = 'この内容で出金を記録します。よろしいですか？';
+    if (p && p.isClose) {
+      confirmMsg = 'これは全額出金(ポジションのクローズ)です。';
+      if (p.f > amount + 1e-9) {
+        confirmMsg += '\n未回収手数料 ' + formatUsd(p.f) + ' のうち ' + formatUsd(amount) + ' のみ確定し、残り ' + formatUsd(p.f - amount) + ' は失われます。';
+      }
+      confirmMsg += '\n続行しますか？';
+    }
+
+    var todaysWithdrawals = state.withdrawals.filter(function (w) { return w.date === state.today; });
+    if (todaysWithdrawals.length > 0 && !confirm('本日はすでに出金を記録済みです。それでも記録しますか？')) return;
+    if (!confirm(confirmMsg)) return;
+
+    if (!pendingWithdrawRequestId) pendingWithdrawRequestId = uuidv4();
+    var btn = this;
+    btn.disabled = true;
+    try {
+      state = await apiPost({ action: 'addWithdrawal', amount: amount, requestId: pendingWithdrawRequestId });
+      pendingWithdrawRequestId = null; // 成功したので次回は新規発行
+      el('withdrawAmount').value = '';
+      render();
+    } catch (e) {
+      alert(e.message); // 失敗時はrequestIdを保持したまま(次回リトライで同じIDが飛ぶ)
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- 記録履歴 ----------
+
+  // 基準(エポック)が変わった箇所の説明文言。「累計(この時点)」列が不連続に落ちる/リセットされる
+  // 理由がテーブル上で分かるようにする(出金・クローズ・再スタートで基準が切り替わるたびに挿入)。
+  function epochBoundaryLabel(epochIndex) {
+    var ep = state.epochs[epochIndex - 1];
+    if (!ep) return '起点';
+    if (ep.kind === 'クローズ') return 'クローズ(' + ep.startDate + ')';
+    if (ep.kind === '初回') return epochIndex > 1 ? '新しいポジション開始(' + ep.startDate + ')' : '初期設定(' + ep.startDate + ')';
+    return '出金(' + ep.startDate + ') ここから新しい起点';
+  }
+
+  function renderHistory() {
+    var tbody = el('historyBody');
+    tbody.innerHTML = '';
+    var sorted = state.entries.slice().reverse(); // 新しい順
+    var visible = sorted.slice(0, historyVisibleCount);
+    var prevEpochIndex = null;
+    visible.forEach(function (e) {
+      if (e.epochIndex !== prevEpochIndex) {
+        var sepTr = document.createElement('tr');
+        var sepTd = document.createElement('td');
+        sepTd.colSpan = 6;
+        sepTd.className = 'epoch-sep-cell';
+        sepTd.textContent = '── ' + epochBoundaryLabel(e.epochIndex) + ' ──';
+        sepTr.appendChild(sepTd);
+        tbody.appendChild(sepTr);
+        prevEpochIndex = e.epochIndex;
+      }
+      var tr = document.createElement('tr');
+      var diffText = formatSignedUsd(e.diffSincePrev) + '(' + e.daysSincePrev + '日)';
+      tr.innerHTML =
+        '<td>' + e.date + '</td>' +
+        '<td>' + formatUsd(e.price) + '</td>' +
+        '<td>' + formatUsd(e.value) + '</td>' +
+        '<td>' + diffText + '</td>' +
+        '<td>' + formatUsd(e.unclaimedFee) + '</td>' +
+        '<td></td>';
+      var actionsTd = tr.lastElementChild;
+      var btn = document.createElement('button');
+      btn.className = 'ghost';
+      btn.textContent = '取り消し';
+      btn.addEventListener('click', async function () {
+        if (!confirm('この記録を取り消します。よろしいですか？')) return;
+        try {
+          state = await apiPost({ action: 'deleteEntry', id: e.id });
+          render();
+        } catch (err) { alert(err.message); }
+      });
+      actionsTd.appendChild(btn);
+      tbody.appendChild(tr);
+    });
+    el('historyLoadMore').classList.toggle('hidden', sorted.length <= historyVisibleCount);
+  }
+
+  el('historyLoadMore').addEventListener('click', function () {
+    historyVisibleCount += HISTORY_PAGE_SIZE;
+    renderHistory();
+  });
+
+  // ---------- 出金履歴 ----------
+
+  function undoBlockedText(reason) {
+    if (reason === 'not_latest') return 'この出金より新しい出金があるため取り消せません';
+    if (reason === 'epoch_has_entries') return '先に出金後の記録を取り消してください';
+    if (reason === 'position_restarted') return '新しいポジションが開始されているため取り消せません';
+    return '';
+  }
+
+  function renderWithdrawHistory() {
+    var tbody = el('withdrawHistoryBody');
+    tbody.innerHTML = '';
+    var sorted = state.withdrawals.slice().reverse();
+    sorted.forEach(function (w) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + w.date + '</td>' +
+        '<td>' + formatUsd(w.amount) + '</td>' +
+        '<td>' + formatUsd(w.realized) + '</td>' +
+        '<td></td>';
+      var actionsTd = tr.lastElementChild;
+      var btn = document.createElement('button');
+      btn.className = 'ghost';
+      btn.textContent = '取り消し';
+      btn.disabled = !w.canUndo;
+      btn.title = w.canUndo ? '' : undoBlockedText(w.undoBlockedReason);
+      btn.addEventListener('click', async function () {
+        if (!confirm('この出金の記録を取り消し、出金前の状態に戻します。よろしいですか？')) return;
+        try {
+          state = await apiPost({ action: 'deleteWithdrawal', id: w.id });
+          render();
+        } catch (err) { alert(err.message); }
+      });
+      actionsTd.appendChild(btn);
+      if (!w.canUndo) {
+        var reasonDiv = document.createElement('div');
+        reasonDiv.className = 'hint';
+        reasonDiv.textContent = undoBlockedText(w.undoBlockedReason);
+        actionsTd.appendChild(reasonDiv);
+      }
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ---------- 初期化 ----------
+
+  el('setupDate').value = todayLocalGuess();
+
+  (async function init() {
+    try {
+      await loadState();
+    } catch (e) {
+      el('loadingCard').textContent = '読み込みに失敗しました: ' + e.message;
+      return;
+    }
+    await fetchSolPrice();
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
