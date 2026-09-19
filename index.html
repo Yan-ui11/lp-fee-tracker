@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>LP手数料トラッカー</title>
+<title>SOL-USDC 手数料トラッカー</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -115,7 +115,7 @@
 </head>
 <body>
 <div class="container">
-  <h1>LP手数料トラッカー</h1>
+  <h1>SOL-USDC 手数料トラッカー</h1>
 
   <div id="integrityBanner" class="card hidden">
     <div class="banner-danger">データに不整合が見つかりました。書き込み系の操作は一時的に無効化されています。管理メニューの「整合修復」を実行してください。</div>
@@ -146,6 +146,7 @@
       <input type="time" id="setupTime" step="60">
       <div class="hint">年率(APR)の計算にだけ使います。今まさに預け入れたなら、そのままで構いません。登録が預入より後になった場合はここで正確な時刻を入れてください。</div>
     </div>
+    <button class="secondary hidden" id="setupRaydiumFill" style="width:100%;margin-bottom:8px;">⚡ Raydiumから自動入力(今この瞬間の値)</button>
     <div class="form-actions">
       <button class="primary" id="setupSubmit">この内容で設定する</button>
     </div>
@@ -156,6 +157,7 @@
   <!-- 日次記録フォーム -->
   <div id="entryCard" class="card hidden">
     <h2>今日の記録</h2>
+    <button class="secondary" id="entryRaydiumFill" style="width:100%;margin-bottom:12px;">⚡ Raydiumから自動入力</button>
     <div class="field">
       <label>今のSOL価格(USD) <span class="price-badge" id="entryPriceBadge"></span></label>
       <div class="row">
@@ -242,7 +244,7 @@
     <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。</div>
   </div>
 
-  <div class="build-stamp">build 2026-09-14 00:07</div>
+  <div class="build-stamp">build 2026-09-19 Raydium連携</div>
 </div>
 
 <script>
@@ -255,6 +257,12 @@
   var state = null;       // 最新のstate
   var priceCache = null;  // 直近取得したSOL価格 {price, priceSource, fetchedAt, fromCache, stale}
   var historyVisibleCount = HISTORY_PAGE_SIZE;
+  // 日次記録フォームの⚡で埋めた値 {price, value, fetchedAt}。基準フォームの⚡はこの変数を一切読み書きしない
+  // (基準行にpriceSource列は無いため。計画書「Opus3周目レビュー6-9」参照)
+  var lastAutoFill = null;
+  // 基準フォームの⚡で埋めた値。priceSource判定には使わない(基準行にpriceSource列は無い)が、
+  // バッジ表示だけはlastAutoFillと同じ理屈でRaydium由来であることを示す(実装後レビューで指摘)
+  var setupAutoFill = null;
 
   // ---------- ユーティリティ ----------
 
@@ -314,8 +322,16 @@
     return json.data;
   }
 
-  async function apiGet(action) {
-    var res = await fetchWithTimeout(API_BASE + '?action=' + encodeURIComponent(action), {}, 15000);
+  async function apiGet(action, params) {
+    var url = API_BASE + '?action=' + encodeURIComponent(action);
+    if (params) {
+      Object.keys(params).forEach(function (k) {
+        if (params[k] !== undefined && params[k] !== null) {
+          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+        }
+      });
+    }
+    var res = await fetchWithTimeout(url, {}, 15000);
     return parseApiResponse(res);
   }
 
@@ -349,6 +365,29 @@
     return label;
   }
 
+  // entryPrice/entryValueが⚡で埋めた値のままなら「Raydium」由来であることを表示する
+  // (常にCoinMarketCap由来の文言を出す既存ロジックのままだと⚡後に嘘をつくため)
+  function entryPriceBadgeText() {
+    var price = parseFloat(el('entryPrice').value);
+    var value = parseFloat(el('entryValue').value);
+    if (lastAutoFill && Math.abs(lastAutoFill.price - price) < 1e-9 && Math.abs(lastAutoFill.value - value) < 1e-9) {
+      var mins = Math.round((Date.now() - lastAutoFill.fetchedAt) / 60000);
+      return 'Raydium(プール価格)・' + mins + '分前に取得';
+    }
+    return priceBadgeText();
+  }
+
+  // 基準フォーム版。isEditingBasis()の分岐は呼び出し側(renderPriceBadges)に任せる
+  function setupPriceBadgeText() {
+    var price = parseFloat(el('setupPrice').value);
+    var value = parseFloat(el('setupValue').value);
+    if (setupAutoFill && Math.abs(setupAutoFill.price - price) < 1e-9 && Math.abs(setupAutoFill.value - value) < 1e-9) {
+      var mins = Math.round((Date.now() - setupAutoFill.fetchedAt) / 60000);
+      return 'Raydium(プール価格)・' + mins + '分前に取得';
+    }
+    return priceBadgeText();
+  }
+
   // 「基準を修正」モード(=既に確定済みの過去のP0を編集している)かどうか。
   // このモードでは価格欄に入っているのは「今CoinMarketCapから取得した値」ではなく
   // 「過去に確定させた固定値」なので、取得元・経過時間のバッジを出すと嘘になる。
@@ -358,9 +397,8 @@
   }
 
   function renderPriceBadges() {
-    var txt = priceBadgeText();
-    el('setupPriceBadge').textContent = isEditingBasis() ? '(現在の基準の値。書き換えると基準が上書きされます)' : txt;
-    el('entryPriceBadge').textContent = txt;
+    el('setupPriceBadge').textContent = isEditingBasis() ? '(現在の基準の値。書き換えると基準が上書きされます)' : setupPriceBadgeText();
+    el('entryPriceBadge').textContent = entryPriceBadgeText();
     if (!isEditingBasis() && priceCache && el('setupPrice').value === '') el('setupPrice').value = priceCache.price;
     if (priceCache && el('entryPrice').value === '') el('entryPrice').value = priceCache.price;
   }
@@ -499,6 +537,10 @@
     var canDeleteLatest = state.epochs.length >= 2 && cur && cur.kind === '初回' && entriesInEpoch(cur.index).length === 0;
     el('deleteLatestSetupBtn').classList.toggle('hidden', !canDeleteLatest);
 
+    // ⚡は「基準を修正」モードでは絶対に出さない(押すと未回収手数料が丸ごと消える破滅的操作になるため)
+    el('setupRaydiumFill').classList.toggle('hidden', canEdit);
+    el('setupRaydiumFill').disabled = integrityBad;
+
     el('setupSubmit').disabled = integrityBad;
     el('setupHint').textContent = integrityBad ? 'データ不整合のため操作できません。' : '';
   }
@@ -516,6 +558,7 @@
       state = isEdit
         ? await apiPost({ action: 'updateSetup', date: date, value: value, price: price, time: time })
         : await apiPost({ action: 'setupPosition', date: date, value: value, price: price, time: time });
+      setupAutoFill = null;
       el('setupValue').value = '';
       el('setupPrice').value = '';
       render();
@@ -542,9 +585,42 @@
       if (!confirm('現在の基準の価格を、今取得した最新価格で上書きします。よろしいですか？')) return;
       if (!confirm('本当に上書きしますか？(元の値には戻せません)')) return;
     }
+    setupAutoFill = null; // 価格だけ戻すと評価額だけRaydium値が残る事故になるため、↻でスナップショットを破棄する
     await fetchSolPrice();
     // ↻は明示的な操作なので、修正モード中でも(renderPriceBadgesの自動プリフィルとは別に)必ず反映する
     if (priceCache) el('setupPrice').value = priceCache.price;
+  });
+
+  el('setupRaydiumFill').addEventListener('click', async function () {
+    // ⚡は常に「今この瞬間」の値。指定した発効日・預入時刻とズレている場合は警告する
+    // (実装後レビューで検出: 時刻だけを見て日付を見ていなかったため、「3日前の14:00に預入・
+    // 今日の14:10に登録」のような典型ケースで警告が出ず、3日分ズレた値が基準として確定し得た)
+    var dateVal = el('setupDate').value || state.today;
+    var timeVal = el('setupTime').value;
+    var isPastDate = dateVal !== state.today;
+    var warn = isPastDate;
+    if (!warn && timeVal) {
+      var targetMs = new Date(dateVal + 'T' + timeVal + ':00').getTime();
+      if (isFinite(targetMs) && Math.abs(Date.now() - targetMs) > 30 * 60 * 1000) warn = true;
+    }
+    if (warn) {
+      var whenLabel = dateVal + (timeVal ? ' ' + timeVal : '');
+      if (!confirm('⚡は今この瞬間の評価額です。指定した預入時刻(' + whenLabel + ')時点の値ではありません。続けますか？')) return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var r = await apiGet('raydiumValue'); // 基準フォームはprevValueを渡さない(比較対象の定義が無いモードのため)
+      var priceStr = r.price.toFixed(4), valueStr = r.value.toFixed(2);
+      el('setupPrice').value = priceStr;
+      el('setupValue').value = valueStr;
+      setupAutoFill = { price: parseFloat(priceStr), value: parseFloat(valueStr), fetchedAt: r.fetchedAt };
+      renderPriceBadges();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // ---------- 日次記録カード ----------
@@ -557,6 +633,7 @@
     el('entrySubmit').disabled = disabled;
     el('entryPrice').disabled = disabled;
     el('entryValue').disabled = disabled;
+    el('entryRaydiumFill').disabled = disabled;
     el('entryHint').textContent =
       integrityBad ? 'データ不整合のため操作できません。' :
       closed ? 'ポジションがクローズされています。先に初期設定を行ってください。' : '';
@@ -575,11 +652,13 @@
 
     if (todaysEntries.length > 0 && !confirm('本日はすでに記録済みです。それでも記録しますか？')) return;
 
-    var priceSource = (priceCache && Math.abs(priceCache.price - price) < 1e-9) ? priceCache.priceSource : '手入力';
+    var priceSource = resolvePriceSource(price, value);
     // 価格がある程度古いまま自動取得値を使おうとしている場合は注意を促す(このツールは価格1%のズレが
-    // 評価額の数十ドルの誤差に直結するため、鮮度が精度に直結する)
-    if (priceSource !== '手入力' && priceCache && (Date.now() - priceCache.fetchedAt) > 3 * 60 * 1000) {
-      var minsOld = Math.round((Date.now() - priceCache.fetchedAt) / 60000);
+    // 評価額の数十ドルの誤差に直結するため、鮮度が精度に直結する)。参照するタイムスタンプは
+    // priceSourceに応じて切り替える(Raydium由来ならpriceCacheではなくlastAutoFillの鮮度を見る)
+    var freshnessRef = (priceSource === 'Raydium') ? lastAutoFill : priceCache;
+    if (priceSource !== '手入力' && freshnessRef && (Date.now() - freshnessRef.fetchedAt) > 3 * 60 * 1000) {
+      var minsOld = Math.round((Date.now() - freshnessRef.fetchedAt) / 60000);
       if (!confirm('価格は' + minsOld + '分前に取得したものです。この間の値動きが手数料の計算に数ドル〜数十ドルの誤差として乗る可能性があります。↻で取り直さずこのまま記録しますか？')) return;
     }
     if (!pendingEntryRequestId) pendingEntryRequestId = uuidv4();
@@ -591,6 +670,7 @@
         requestId: pendingEntryRequestId
       });
       pendingEntryRequestId = null; // 成功したので次回は新規発行
+      lastAutoFill = null; // 記録成功後はスナップショットの意味が終わる
       el('entryValue').value = '';
       render();
     } catch (e) {
@@ -600,9 +680,50 @@
     }
   });
 
+  // ⚡で埋めた価格・評価額のどちらか一方でも送信前に手で変えたら'手入力'扱いに落とす
+  // (ペアの一貫性が崩れたらRaydiumスナップショットとは呼べないため)
+  function resolvePriceSource(price, value) {
+    if (lastAutoFill && Math.abs(lastAutoFill.price - price) < 1e-9 && Math.abs(lastAutoFill.value - value) < 1e-9) return 'Raydium';
+    if (priceCache && Math.abs(priceCache.price - price) < 1e-9) return priceCache.priceSource;
+    return '手入力';
+  }
+
   el('entryPriceRefresh').addEventListener('click', async function () {
     el('entryPrice').value = '';
+    lastAutoFill = null; // 価格だけ戻すと評価額だけRaydium値が残る事故になるため、↻でスナップショットを破棄する
     await fetchSolPrice();
+  });
+
+  el('entryPrice').addEventListener('input', renderPriceBadges);
+  el('entryValue').addEventListener('input', renderPriceBadges);
+
+  el('entryRaydiumFill').addEventListener('click', async function () {
+    var cur = currentEpoch();
+    var curEntries = cur ? entriesInEpoch(cur.index) : [];
+    var prevValue = curEntries.length ? curEntries[curEntries.length - 1].value : null;
+
+    var existingValue = parseFloat(el('entryValue').value);
+    var hasUnrelatedManualValue = !isNaN(existingValue) &&
+      !(lastAutoFill && Math.abs(existingValue - lastAutoFill.value) < 1e-9);
+    if (hasUnrelatedManualValue && !confirm('入力済みの評価額を、Raydiumから取得した値で上書きします。よろしいですか？')) return;
+
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var r = await apiGet('raydiumValue', prevValue !== null ? { prevValue: prevValue } : null);
+      if (r.warning && !confirm(r.warning + '\nこの内容で使いますか？')) return;
+      var priceStr = r.price.toFixed(4), valueStr = r.value.toFixed(2);
+      el('entryPrice').value = priceStr;
+      el('entryValue').value = valueStr;
+      // 表示に入れた丸め済み文字列を再パースした値をlastAutoFillに入れる(丸め誤差で一致判定が壊れないよう、
+      // 単一の文字列から両方を作ることが必須)
+      lastAutoFill = { price: parseFloat(priceStr), value: parseFloat(valueStr), fetchedAt: r.fetchedAt };
+      renderPriceBadges();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // ---------- 出金カード ----------
