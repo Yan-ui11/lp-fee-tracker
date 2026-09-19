@@ -56,6 +56,8 @@
     -webkit-backdrop-filter: blur(20px);
   }
   .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  #setupCard summary { cursor: pointer; margin-bottom: 0; padding: 10px 0; }
+  #setupCard summary h2 { display: inline; }
   .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
   .field label { font-size: 12px; color: var(--muted); }
   .field .row { display: flex; gap: 8px; align-items: center; }
@@ -123,35 +125,41 @@
 
   <div id="loadingCard" class="card">読み込み中…</div>
 
-  <!-- 初回セットアップ / 基準を修正 -->
+  <!-- 初回セットアップ / 基準を修正。「基準を修正」モード(稼働中に過去の基準をいじる、めったに
+       使わない操作)ではdetailsで畳んでおき、日次記録・今引き出せる手数料を見るためのスクロールを
+       増やさないようにする。初回セットアップ・再スタート(必須の操作)のときはJS側で自動的に開く。 -->
   <div id="setupCard" class="card hidden">
-    <h2 id="setupTitle">初期設定</h2>
-    <div class="field">
-      <label>預入時の評価額(USD)</label>
-      <input type="number" id="setupValue" step="0.01" placeholder="1000.00">
-    </div>
-    <div class="field">
-      <label>預入時のSOL価格(USD) <span class="price-badge" id="setupPriceBadge"></span></label>
-      <div class="row">
-        <input type="number" id="setupPrice" step="0.0001" placeholder="150.00">
-        <button class="secondary" id="setupPriceRefresh">↻</button>
+    <details id="setupDetails">
+      <summary><h2 id="setupTitle" style="display:inline;margin:0;">初期設定</h2></summary>
+      <div style="margin-top:4px;">
+        <div class="field">
+          <label>預入時の評価額(USD)</label>
+          <input type="number" id="setupValue" step="0.01" placeholder="1000.00">
+        </div>
+        <div class="field">
+          <label>預入時のSOL価格(USD) <span class="price-badge" id="setupPriceBadge"></span></label>
+          <div class="row">
+            <input type="number" id="setupPrice" step="0.0001" placeholder="150.00">
+            <button class="secondary" id="setupPriceRefresh">↻</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>発効日</label>
+          <input type="date" id="setupDate">
+        </div>
+        <div class="field">
+          <label>実際に預け入れた時刻(JST、任意)</label>
+          <input type="time" id="setupTime" step="60">
+          <div class="hint">年率(APR)の計算にだけ使います。今まさに預け入れたなら、そのままで構いません。登録が預入より後になった場合はここで正確な時刻を入れてください。</div>
+        </div>
+        <button class="secondary hidden" id="setupRaydiumFill" style="width:100%;margin-bottom:8px;">⚡ Raydiumから自動入力(今この瞬間の値)</button>
+        <div class="form-actions">
+          <button class="primary" id="setupSubmit">この内容で設定する</button>
+        </div>
+        <button class="danger-outline hidden" id="deleteLatestSetupBtn" style="margin-top:8px;width:100%;">この設定を取り消す</button>
+        <div class="hint" id="setupHint"></div>
       </div>
-    </div>
-    <div class="field">
-      <label>発効日</label>
-      <input type="date" id="setupDate">
-    </div>
-    <div class="field">
-      <label>実際に預け入れた時刻(JST、任意)</label>
-      <input type="time" id="setupTime" step="60">
-      <div class="hint">年率(APR)の計算にだけ使います。今まさに預け入れたなら、そのままで構いません。登録が預入より後になった場合はここで正確な時刻を入れてください。</div>
-    </div>
-    <button class="secondary hidden" id="setupRaydiumFill" style="width:100%;margin-bottom:8px;">⚡ Raydiumから自動入力(今この瞬間の値)</button>
-    <div class="form-actions">
-      <button class="primary" id="setupSubmit">この内容で設定する</button>
-    </div>
-    <button class="danger-outline hidden" id="deleteLatestSetupBtn" style="margin-top:8px;width:100%;">この設定を取り消す</button>
-    <div class="hint" id="setupHint"></div>
+    </details>
   </div>
 
   <!-- 日次記録フォーム -->
@@ -514,19 +522,39 @@
 
   // ---------- セットアップカード ----------
 
+  // 「基準を修正」モードに入った/出た瞬間だけdetailsの開閉を自動制御する。毎render()で
+  // 無条件にopenを上書きすると、ユーザーが折りたたみを手で開いた直後に別の操作(記録の追加等)で
+  // render()が走り、勝手に閉じてしまうため、モードが変わらない限りは手動状態を尊重する。
+  var lastSetupDetailsMode = null;
+
   function renderSetupCard(show, integrityBad) {
     el('setupCard').classList.toggle('hidden', !show);
-    if (!show) return;
+    if (!show) { lastSetupDetailsMode = null; return; }
     var cur = currentEpoch();
     var isRestart = !!cur && cur.kind === 'クローズ';
-    var canEdit = state.canEditSetup && cur && cur.kind === '初回';
+    // !!で厳密なbooleanに落とす(実装後レビューで指摘: state.canEditSetup===trueかつcur===nullは
+    // バックエンドの現行ロジック上は起こらないが、&&チェーンのままだとcanEditがnullになり得て、
+    // 下のlastSetupDetailsMode(初期値null)との比較がすり抜け、必須フォームが畳まれたまま
+    // 出てこない静かな地雷になる)
+    var canEdit = !!(state.canEditSetup && cur && cur.kind === '初回');
+
+    // 「基準を修正」は稼働中にたまに行う任意操作なので畳んでおく。初回セットアップ・再スタートは
+    // 他に選択肢が無い必須操作なので常に開く。プリフィルもこのモード遷移時だけに限定する
+    // (実装後レビューで指摘: 毎render()で無条件にcur.v0等を代入すると、フォームを開いたまま
+    // 編集中の値が、記録の追加など無関係な操作のたびに元の値へ無言で巻き戻ってしまう)
+    if (lastSetupDetailsMode !== canEdit) {
+      el('setupDetails').open = !canEdit;
+      lastSetupDetailsMode = canEdit;
+      if (canEdit) {
+        el('setupValue').value = cur.v0;
+        el('setupPrice').value = cur.p0;
+        el('setupDate').value = cur.startDate;
+        el('setupTime').value = cur.startTime || '';
+      }
+    }
 
     if (canEdit) {
       el('setupTitle').textContent = '基準を修正';
-      el('setupValue').value = cur.v0;
-      el('setupPrice').value = cur.p0;
-      el('setupDate').value = cur.startDate;
-      el('setupTime').value = cur.startTime || '';
     } else {
       el('setupTitle').textContent = isRestart ? '新しいポジションを始める' : '初期設定';
       if (el('setupPrice').value === '' && priceCache) el('setupPrice').value = priceCache.price;
