@@ -778,6 +778,7 @@
       pendingEntryRequestId = null; // 成功したので次回は新規発行
       lastAutoFill = null; // 記録成功後はスナップショットの意味が終わる
       el('entryValue').value = '';
+      el('entryPrice').value = '';
       render();
     } catch (e) {
       alert(e.message); // 失敗時はrequestIdを保持したまま(次回リトライで同じIDが飛ぶ)
