@@ -9,7 +9,9 @@
     color-scheme: light dark;
     --bg: #f2f3f5;
     --card-bg: rgba(255,255,255,0.72);
+    --card-bg-strong: rgba(255,255,255,0.82);
     --card-border: rgba(0,0,0,0.08);
+    --card-highlight: rgba(255,255,255,0.5);
     --text: #1c1c1e;
     --muted: #6b6b70;
     --accent: #0a84ff;
@@ -18,13 +20,16 @@
     --danger-bg: #fdecea;
     --danger-text: #b3261e;
     --shadow: 0 4px 24px rgba(0,0,0,0.06);
+    --shadow-strong: 0 8px 32px rgba(0,0,0,0.10);
     --radius: 16px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0e0e10;
       --card-bg: rgba(40,40,44,0.72);
+      --card-bg-strong: rgba(48,48,52,0.82);
       --card-border: rgba(255,255,255,0.08);
+      --card-highlight: rgba(255,255,255,0.08);
       --text: #f2f2f4;
       --muted: #9a9aa0;
       --accent: #409cff;
@@ -33,6 +38,7 @@
       --danger-bg: #3a1414;
       --danger-text: #ff8a80;
       --shadow: 0 4px 24px rgba(0,0,0,0.4);
+      --shadow-strong: 0 8px 40px rgba(0,0,0,0.5);
     }
   }
   * { box-sizing: border-box; }
@@ -43,6 +49,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
     padding: 16px;
     padding-bottom: 64px;
+    transition: background-color 200ms ease, color 200ms ease;
   }
   .container { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
   h1 { font-size: 20px; margin: 8px 0 0; }
@@ -50,10 +57,40 @@
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow);
+    /* 2つ目のinset box-shadowがガラス上端のハイライト(光の反射)を表現する。
+       border-top-colorではなくinset shadowにするのは、角丸コーナーで色の継ぎ目が
+       出ないようにするため(設計レビューで指摘) */
+    box-shadow: var(--shadow), inset 0 1px 0 var(--card-highlight);
     padding: 16px;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+  /* ヒーローカード(今引き出せる手数料/生涯累計)は最重要指標なので、影を1段深く・
+     背景の不透明度をわずかに上げて階層を表現する(ブラー量の差は撤回 — このページの
+     背景は単色ベタ塗りでブラー差に視覚効果が無いことを設計レビューで確認したため) */
+  #heroCard {
+    background: var(--card-bg-strong);
+    box-shadow: var(--shadow-strong), inset 0 1px 0 var(--card-highlight);
+  }
+  /* 透明度を下げる設定のユーザーには不透明な背景+ブラー無しでフォールバックする。
+     ライト/ダークそれぞれ別の不透明値を明示し、ダークモードでライトの値が漏れて
+     明るい背景に白文字が乗る事故を防ぐ(設計レビューで指摘)。
+     この3ブロックは意図的に.card本体の定義より後ろに置く — メディアクエリは詳細度を
+     上げないため、CSSのソース順で後ろにある方が勝つ。前に置くと.card本体に上書きされ、
+     フォールバックが効かないまま気づかれない(実装後レビューで実測して検出)。
+     --card-bg/--card-bg-strongの値は素の--bg(#f2f3f5)とは別の色にする(同じ値だと
+     カードとページ背景の区別が枠線と影だけになり、実質的に見分けがつかなくなるため)。 */
+  @media (prefers-reduced-transparency: reduce) {
+    :root { --card-bg: #fbfbfc; --card-bg-strong: #fdfdfd; }
+    .card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+  @media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
+    :root { --card-bg: #212124; --card-bg-strong: #2a2a2d; }
+  }
+  @media (prefers-contrast: more) {
+    :root { --card-border: currentColor; }
+    .card { border-width: 2px; }
   }
   .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
   #setupCard summary { cursor: pointer; margin-bottom: 0; padding: 10px 0; }
@@ -77,19 +114,30 @@
     border: none;
     cursor: pointer;
     font-weight: 600;
+    transition: transform 100ms ease-out;
   }
+  /* 押した瞬間(pointer-down)にフィードバックが出るよう:activeで即座に縮める。
+     releaseを待つ実装は「反応が鈍い」と感じさせるため避ける(Apple Design Guidelines) */
+  button:not(:disabled):active { transform: scale(0.97); }
   button.primary { background: var(--accent); color: white; width: 100%; }
   button.secondary { background: rgba(127,127,127,0.15); color: var(--text); }
   button.ghost { background: transparent; color: var(--accent); padding: 6px 8px; }
   button.danger-outline { background: transparent; color: var(--negative); border: 1px solid var(--negative); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
+  @media (prefers-reduced-motion: reduce) {
+    body, .card, button { transition: none; }
+    button:not(:disabled):active { transform: none; }
+  }
   .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .price-badge { font-size: 11px; color: var(--muted); }
   .hero { display: flex; gap: 12px; }
   .hero .stat { flex: 1; text-align: center; padding: 12px 8px; }
-  .hero .stat .value { font-size: 22px; font-weight: 700; }
+  .hero .stat .value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
   .hero .stat .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .hero .stat .hero-caption { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.5; opacity: 0.8; }
+  /* margin-topは.hero .stat .hero-caption(詳細度が上)が上書きして6pxになる(意図通り、
+     他のキャプションと間隔を揃える)。ここではタップ領域確保のためのpaddingだけ足す */
+  .error-note-details summary { cursor: pointer; padding: 6px 0; }
   .apr-badge { font-size: 11px; font-weight: 700; color: var(--accent); vertical-align: middle; }
   .apr-badge.muted { color: var(--muted); font-weight: 400; }
   .value.positive { color: var(--positive); }
@@ -125,9 +173,101 @@
 
   <div id="loadingCard" class="card">読み込み中…</div>
 
-  <!-- 初回セットアップ / 基準を修正。「基準を修正」モード(稼働中に過去の基準をいじる、めったに
-       使わない操作)ではdetailsで畳んでおき、日次記録・今引き出せる手数料を見るためのスクロールを
-       増やさないようにする。初回セットアップ・再スタート(必須の操作)のときはJS側で自動的に開く。 -->
+  <!-- 日次記録フォーム(毎日見る最優先セクション) -->
+  <div id="entryCard" class="card hidden">
+    <h2>今日の記録</h2>
+    <button class="secondary" id="entryRaydiumFill" style="width:100%;margin-bottom:12px;">⚡ Raydiumから自動入力</button>
+    <div class="field">
+      <label>今のSOL価格(USD) <span class="price-badge" id="entryPriceBadge"></span></label>
+      <input type="number" id="entryPrice" step="0.0001">
+    </div>
+    <div class="field">
+      <label>今の評価額(USD)</label>
+      <input type="number" id="entryValue" step="0.01">
+    </div>
+    <button class="primary" id="entrySubmit">記録する</button>
+    <div class="hint" id="entryHint"></div>
+  </div>
+
+  <!-- ヒーロー表示(手数料収入・年率) -->
+  <div id="heroCard" class="card hidden">
+    <div class="hero">
+      <div class="stat">
+        <div class="value" id="claimableValue">$0.00</div>
+        <div class="label">今引き出せる手数料 <span id="aprBadge" class="apr-badge"></span></div>
+        <div class="hero-caption">前回の出金(まだ出金してなければ預入時)からの累計</div>
+        <details class="error-note-details">
+          <summary class="hero-caption">誤差について</summary>
+          <div class="hero-caption" id="claimableErrorNote" style="margin-top:4px;"></div>
+        </details>
+      </div>
+      <div class="stat">
+        <div class="value" id="lifetimeValue">$0.00</div>
+        <div class="label">これまでに稼いだ手数料(生涯累計)</div>
+        <div class="hero-caption">出金して確定させた分+左の「今引き出せる手数料」の合計。出金してもこの数字は減りません</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 実際 vs 理論値 -->
+  <div id="compareCard" class="card hidden">
+    <h2>評価額の比較</h2>
+    <div class="compare">
+      <div class="col">
+        <div>実際の評価額</div>
+        <div class="v" id="compareActual">-</div>
+      </div>
+      <div class="col">
+        <div>手数料が0だった場合の評価額</div>
+        <div class="v" id="compareTheoretical">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 出金フォーム(日次3点セットより下、履歴より上) -->
+  <div id="withdrawCard" class="card hidden">
+    <h2>出金を記録</h2>
+    <div class="hint" id="withdrawDisabledHint"></div>
+    <div id="withdrawFormBody" class="hidden">
+      <div class="field">
+        <label>出金日</label>
+        <div id="withdrawTodayLabel" style="font-size:15px;"></div>
+      </div>
+      <div class="field">
+        <label>出金額(USD)</label>
+        <input type="number" id="withdrawAmount" step="0.01">
+      </div>
+      <div class="preview" id="withdrawPreview"></div>
+      <button class="primary" id="withdrawSubmit">出金を記録する</button>
+    </div>
+  </div>
+
+  <!-- 記録履歴 -->
+  <div id="historyCard" class="card hidden">
+    <h2>記録履歴</h2>
+    <table>
+      <thead><tr><th>日付</th><th>価格</th><th>評価額</th><th>前回比</th><th>累計(この時点)</th><th></th></tr></thead>
+      <tbody id="historyBody"></tbody>
+    </table>
+    <div class="note">※「前回比」がマイナスのときは、実際に手数料が減ったのではなく価格変動・記録タイミングのズレによるモデル推定の誤差です。</div>
+    <button class="secondary load-more hidden" id="historyLoadMore">さらに表示</button>
+  </div>
+
+  <!-- 出金履歴 -->
+  <div id="withdrawHistoryCard" class="card hidden">
+    <h2>出金履歴</h2>
+    <table>
+      <thead><tr><th>日付</th><th>金額</th><th>うち手数料分</th><th></th></tr></thead>
+      <tbody id="withdrawHistoryBody"></tbody>
+    </table>
+    <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。</div>
+  </div>
+
+  <!-- 初回セットアップ / 基準を修正。静的な初期位置はここ(最下部、編集モードの定位置と同じ)。
+       JS(positionSetupCard)が表示のたびにモードに応じてDOM位置を動かす:
+       必須モード(未設定・クローズ済み)ではentryCardの直前へ、編集モード(「基準を修正」)では
+       ここ(withdrawHistoryCardの直後・ビルドスタンプの直前)へ戻す。折りたたみ(details)は
+       編集モードのときだけ畳んだ状態がデフォルトになる(必須モードは常に開く)。 -->
   <div id="setupCard" class="card hidden">
     <details id="setupDetails">
       <summary><h2 id="setupTitle" style="display:inline;margin:0;">初期設定</h2></summary>
@@ -162,97 +302,7 @@
     </details>
   </div>
 
-  <!-- 日次記録フォーム -->
-  <div id="entryCard" class="card hidden">
-    <h2>今日の記録</h2>
-    <button class="secondary" id="entryRaydiumFill" style="width:100%;margin-bottom:12px;">⚡ Raydiumから自動入力</button>
-    <div class="field">
-      <label>今のSOL価格(USD) <span class="price-badge" id="entryPriceBadge"></span></label>
-      <div class="row">
-        <input type="number" id="entryPrice" step="0.0001">
-        <button class="secondary" id="entryPriceRefresh">↻</button>
-      </div>
-    </div>
-    <div class="field">
-      <label>今の評価額(USD)</label>
-      <input type="number" id="entryValue" step="0.01">
-    </div>
-    <button class="primary" id="entrySubmit">記録する</button>
-    <div class="hint" id="entryHint"></div>
-  </div>
-
-  <!-- 出金フォーム -->
-  <div id="withdrawCard" class="card hidden">
-    <h2>出金を記録</h2>
-    <div class="hint" id="withdrawDisabledHint"></div>
-    <div id="withdrawFormBody" class="hidden">
-      <div class="field">
-        <label>出金日</label>
-        <div id="withdrawTodayLabel" style="font-size:15px;"></div>
-      </div>
-      <div class="field">
-        <label>出金額(USD)</label>
-        <input type="number" id="withdrawAmount" step="0.01">
-      </div>
-      <div class="preview" id="withdrawPreview"></div>
-      <button class="primary" id="withdrawSubmit">出金を記録する</button>
-    </div>
-  </div>
-
-  <!-- ヒーロー表示 -->
-  <div id="heroCard" class="card hidden">
-    <div class="hero">
-      <div class="stat">
-        <div class="value" id="claimableValue">$0.00</div>
-        <div class="label">今引き出せる手数料 <span id="aprBadge" class="apr-badge"></span></div>
-        <div class="hero-caption">前回の出金(まだ出金してなければ預入時)からの累計</div>
-        <div class="hero-caption" id="claimableErrorNote"></div>
-      </div>
-      <div class="stat">
-        <div class="value" id="lifetimeValue">$0.00</div>
-        <div class="label">これまでに稼いだ手数料(生涯累計)</div>
-        <div class="hero-caption">出金して確定させた分+左の「今引き出せる手数料」の合計。出金してもこの数字は減りません</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 実際 vs 理論値 -->
-  <div id="compareCard" class="card hidden">
-    <h2>評価額の比較</h2>
-    <div class="compare">
-      <div class="col">
-        <div>実際の評価額</div>
-        <div class="v" id="compareActual">-</div>
-      </div>
-      <div class="col">
-        <div>手数料が0だった場合の評価額</div>
-        <div class="v" id="compareTheoretical">-</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 記録履歴 -->
-  <div id="historyCard" class="card hidden">
-    <h2>記録履歴</h2>
-    <table>
-      <thead><tr><th>日付</th><th>価格</th><th>評価額</th><th>前回比</th><th>累計(この時点)</th><th></th></tr></thead>
-      <tbody id="historyBody"></tbody>
-    </table>
-    <div class="note">※「前回比」がマイナスのときは、実際に手数料が減ったのではなく価格変動・記録タイミングのズレによるモデル推定の誤差です。</div>
-    <button class="secondary load-more hidden" id="historyLoadMore">さらに表示</button>
-  </div>
-
-  <!-- 出金履歴 -->
-  <div id="withdrawHistoryCard" class="card hidden">
-    <h2>出金履歴</h2>
-    <table>
-      <thead><tr><th>日付</th><th>金額</th><th>うち手数料分</th><th></th></tr></thead>
-      <tbody id="withdrawHistoryBody"></tbody>
-    </table>
-    <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。</div>
-  </div>
-
-  <div class="build-stamp">build 2026-09-19 Raydium連携</div>
+  <div id="buildStamp" class="build-stamp">build 2026-09-23 レイアウト刷新+Liquid Glass</div>
 </div>
 
 <script>
@@ -260,11 +310,12 @@
   'use strict';
 
   var API_BASE = 'https://script.google.com/macros/s/AKfycbwp99JR-rfxQfoQKjTIqy2TW8td4LprC5JvodrK2nJd_AJVVXJGQmFAQDU6Ox9XAYUHSw/exec';
-  var HISTORY_PAGE_SIZE = 100;
+  var HISTORY_INITIAL_COUNT = 5;   // 記録履歴の初期表示件数(表の行数ではなく記録の件数。エポック区切り行は別途増える)
+  var HISTORY_LOAD_MORE_STEP = 20; // 「さらに表示」1回あたりの追加件数
 
   var state = null;       // 最新のstate
   var priceCache = null;  // 直近取得したSOL価格 {price, priceSource, fetchedAt, fromCache, stale}
-  var historyVisibleCount = HISTORY_PAGE_SIZE;
+  var historyVisibleCount = HISTORY_INITIAL_COUNT;
   // 日次記録フォームの⚡で埋めた値 {price, value, fetchedAt}。基準フォームの⚡はこの変数を一切読み書きしない
   // (基準行にpriceSource列は無いため。計画書「Opus3周目レビュー6-9」参照)
   var lastAutoFill = null;
@@ -307,6 +358,10 @@
   }
 
   function el(id) { return document.getElementById(id); }
+
+  // iOS Safariは要素にtouchstartリスナが無いと:active疑似クラスが発火しない既知の癖があるため、
+  // ボタンのpress feedback(CSS側)がiPhoneでも効くように no-op のリスナを付けておく
+  document.addEventListener('touchstart', function () {}, { passive: true });
 
   // ---------- API呼び出し ----------
 
@@ -527,6 +582,27 @@
   // render()が走り、勝手に閉じてしまうため、モードが変わらない限りは手動状態を尊重する。
   var lastSetupDetailsMode = null;
 
+  // setupCardのDOM位置をモードに応じて動かす。必須モード(未設定・クローズ済み)では
+  // entryCardの直前(=実質ページ最上部)へ、編集モード(「基準を修正」)ではwithdrawHistoryCardの
+  // 直後・ビルドスタンプの直前(=最下部、静的HTML上の初期位置と同じ)へ。
+  // nextElementSiblingで既に正しい位置にあるか確認してから動かす(無駄なDOM操作・チラつきを避ける)。
+  // 開閉制御(上のlastSetupDetailsMode)とは独立させ、毎render()で呼んでも副作用が無いようにする。
+  function positionSetupCard(canEdit) {
+    var setupCardEl = el('setupCard');
+    var container = setupCardEl.parentNode;
+    if (canEdit) {
+      var buildStampEl = el('buildStamp');
+      if (setupCardEl.nextElementSibling !== buildStampEl) {
+        container.insertBefore(setupCardEl, buildStampEl);
+      }
+    } else {
+      var entryCardEl = el('entryCard');
+      if (setupCardEl.nextElementSibling !== entryCardEl) {
+        container.insertBefore(setupCardEl, entryCardEl);
+      }
+    }
+  }
+
   function renderSetupCard(show, integrityBad) {
     el('setupCard').classList.toggle('hidden', !show);
     if (!show) { lastSetupDetailsMode = null; return; }
@@ -537,6 +613,8 @@
     // 下のlastSetupDetailsMode(初期値null)との比較がすり抜け、必須フォームが畳まれたまま
     // 出てこない静かな地雷になる)
     var canEdit = !!(state.canEditSetup && cur && cur.kind === '初回');
+
+    positionSetupCard(canEdit);
 
     // 「基準を修正」は稼働中にたまに行う任意操作なので畳んでおく。初回セットアップ・再スタートは
     // 他に選択肢が無い必須操作なので常に開く。プリフィルもこのモード遷移時だけに限定する
@@ -675,19 +753,19 @@
     var price = parseFloat(el('entryPrice').value);
     var value = parseFloat(el('entryValue').value);
     var today = state.today;
-    var cur = currentEpoch();
-    var todaysEntries = entriesInEpoch(cur.index).filter(function (e) { return e.date === today; });
 
-    if (todaysEntries.length > 0 && !confirm('本日はすでに記録済みです。それでも記録しますか？')) return;
+    // 同日に複数回記録する運用を前提としているため、「本日はすでに記録済み」の確認は出さない
 
     var priceSource = resolvePriceSource(price, value);
     // 価格がある程度古いまま自動取得値を使おうとしている場合は注意を促す(このツールは価格1%のズレが
     // 評価額の数十ドルの誤差に直結するため、鮮度が精度に直結する)。参照するタイムスタンプは
-    // priceSourceに応じて切り替える(Raydium由来ならpriceCacheではなくlastAutoFillの鮮度を見る)
+    // priceSourceに応じて切り替える(Raydium由来ならpriceCacheではなくlastAutoFillの鮮度を見る)。
+    // この警告は自動取得値(CoinMarketCapプリフィル or Raydium⚡)のままのときだけ発火し、
+    // 手入力した価格では発火しない(priceSource==='手入力'ならこのif自体に入らない)
     var freshnessRef = (priceSource === 'Raydium') ? lastAutoFill : priceCache;
     if (priceSource !== '手入力' && freshnessRef && (Date.now() - freshnessRef.fetchedAt) > 3 * 60 * 1000) {
       var minsOld = Math.round((Date.now() - freshnessRef.fetchedAt) / 60000);
-      if (!confirm('価格は' + minsOld + '分前に取得したものです。この間の値動きが手数料の計算に数ドル〜数十ドルの誤差として乗る可能性があります。↻で取り直さずこのまま記録しますか？')) return;
+      if (!confirm('価格は' + minsOld + '分前に取得したものです。この間の値動きが手数料の計算に数ドル〜数十ドルの誤差として乗る可能性があります。⚡で取得し直すか、ページを再読み込みしてから記録することをおすすめします。このまま記録しますか？')) return;
     }
     if (!pendingEntryRequestId) pendingEntryRequestId = uuidv4();
     var btn = this;
@@ -715,12 +793,6 @@
     if (priceCache && Math.abs(priceCache.price - price) < 1e-9) return priceCache.priceSource;
     return '手入力';
   }
-
-  el('entryPriceRefresh').addEventListener('click', async function () {
-    el('entryPrice').value = '';
-    lastAutoFill = null; // 価格だけ戻すと評価額だけRaydium値が残る事故になるため、↻でスナップショットを破棄する
-    await fetchSolPrice();
-  });
 
   el('entryPrice').addEventListener('input', renderPriceBadges);
   el('entryValue').addEventListener('input', renderPriceBadges);
@@ -930,7 +1002,7 @@
   }
 
   el('historyLoadMore').addEventListener('click', function () {
-    historyVisibleCount += HISTORY_PAGE_SIZE;
+    historyVisibleCount += HISTORY_LOAD_MORE_STEP;
     renderHistory();
   });
 
