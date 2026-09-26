@@ -140,6 +140,13 @@
   .error-note-details summary { cursor: pointer; padding: 6px 0; }
   .apr-badge { font-size: 11px; font-weight: 700; color: var(--accent); vertical-align: middle; }
   .apr-badge.muted { color: var(--muted); font-weight: 400; }
+  /* ブロック要素として1行追加する(aprBadgeの隣にインラインで置くと狭い列で窮屈になるため)。
+     min-heightは、visibility:hiddenで隠すときに中身が空だと高さ0に潰れてヒーローカードが
+     ガタつく事故を防ぐためのもの(実装後レビューで指摘)。フォントサイズ11px×行高1.5に余裕を見た値 */
+  /* 狭い列(モバイルのヒーロー.stat)では「日割り」「月換算」の2つが2行に折り返ることがあるため、
+     1行(17px)ではなく2行ぶん確保しておく(実装後レビューで指摘: 1行想定だと表示/非表示の
+     切り替えでヒーローカードの高さが変わってしまう) */
+  #feeRateBadge { min-height: 32px; margin-top: 2px; line-height: 1.5; }
   .value.positive { color: var(--positive); }
   .value.negative { color: var(--negative); }
   .compare { display: flex; justify-content: space-between; font-size: 14px; }
@@ -184,6 +191,7 @@
     <div class="field">
       <label>今の評価額(USD)</label>
       <input type="number" id="entryValue" step="0.01">
+      <div class="hint" id="entryValueJpy"></div>
     </div>
     <button class="primary" id="entrySubmit">記録する</button>
     <div class="hint" id="entryHint"></div>
@@ -195,6 +203,7 @@
       <div class="stat">
         <div class="value" id="claimableValue">$0.00</div>
         <div class="label">今引き出せる手数料 <span id="aprBadge" class="apr-badge"></span></div>
+        <div id="feeRateBadge" class="apr-badge muted"></div>
         <div class="hero-caption">前回の出金(まだ出金してなければ預入時)からの累計</div>
         <details class="error-note-details">
           <summary class="hero-caption">誤差について</summary>
@@ -302,7 +311,7 @@
     </details>
   </div>
 
-  <div id="buildStamp" class="build-stamp">build 2026-09-23 レイアウト刷新+Liquid Glass</div>
+  <div id="buildStamp" class="build-stamp">build 2026-09-26 円換算表示+日割り/月換算</div>
 </div>
 
 <script>
@@ -342,6 +351,15 @@
   function formatSignedUsd(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '-';
     return (n >= 0 ? '+' : '-') + '$' + Math.abs(n).toFixed(2);
+  }
+
+  // 円換算。判定の主眼はrateの妥当性だが、usdValue側もfiniteであることを合わせて確認する
+  // (rateだけ見ればいいという意味ではない。実装後レビューで指摘)
+  function formatJpy(usdValue, rate) {
+    if (typeof rate !== 'number' || !isFinite(rate) || rate <= 0) return '-';
+    if (typeof usdValue !== 'number' || !isFinite(usdValue)) return '-';
+    var yen = Math.round(usdValue * rate);
+    return '¥' + yen.toLocaleString('ja-JP');
   }
 
   function todayLocalGuess() {
@@ -464,6 +482,23 @@
     el('entryPriceBadge').textContent = entryPriceBadgeText();
     if (!isEditingBasis() && priceCache && el('setupPrice').value === '') el('setupPrice').value = priceCache.price;
     if (priceCache && el('entryPrice').value === '') el('entryPrice').value = priceCache.price;
+    renderEntryValueJpyPreview();
+  }
+
+  // 「今の評価額」の円換算プレビュー。renderPriceBadges()の中から呼ぶことで、input・
+  // fetchSolPrice・⚡・render()のすべての経路をカバーする(1箇所だけフックすると
+  // ⚡自動入力[inputイベントが発火しない]や送信後のフィールドクリアで更新漏れが起きるため)。
+  // entryValueが空/数値でないときは何も表示しない(ページ読み込み直後、priceCacheがまだ
+  // 無い状態でここが呼ばれても「(為替レート取得失敗)」が一瞬フラッシュしないようにするため)。
+  function renderEntryValueJpyPreview() {
+    var jpyEl = el('entryValueJpy');
+    var value = parseFloat(el('entryValue').value);
+    if (isNaN(value)) { jpyEl.textContent = ''; return; }
+    if (!priceCache || priceCache.usdJpyRate == null) {
+      jpyEl.textContent = '(為替レート取得失敗)';
+      return;
+    }
+    jpyEl.textContent = '≈ ' + formatJpy(value, priceCache.usdJpyRate);
   }
 
   // ---------- 状態取得・描画 ----------
@@ -516,6 +551,7 @@
       el('lifetimeValue').textContent = formatUsd(state.lifetimeFee);
       el('lifetimeValue').className = 'value ' + (state.lifetimeFee >= 0 ? 'positive' : 'negative');
       renderAprBadge(integrityBad);
+      renderFeeRateBadge(integrityBad);
       // 価格1%のズレが理論値に与える影響の目安(V0/2×1%)を動的に出す。手数料の実額が
       // 小さいうちは、この誤差の方が数字を支配することを伝えるための注記。
       if (cur) {
@@ -573,6 +609,26 @@
     if (state.aprAsOf) titleParts.push(state.aprAsOf + ' 時点');
     if (isLow) titleParts.push('経過3日未満のため参考値です(価格の読み取り誤差の影響を強く受けます)');
     badge.title = titleParts.join(' / ');
+  }
+
+  // 1日あたり/月当たりの手数料収入。aprと全く同じ条件でnullになる(too_soon/negative_fee/
+  // invalid_ts/dataIntegrity不整合)。aprBadgeが既に理由を説明しているので、値が出せる
+  // ときだけ表示し、それ以外はvisibility:hiddenで隠す(display:noneにすると、全額出金
+  // 直後にnegative_feeでnullになりやすいこの値のせいでヒーローカードの高さが記録の
+  // たびにガタつくため。実装後レビューで指摘)。
+  function renderFeeRateBadge(integrityBad) {
+    var badge = el('feeRateBadge');
+    // == null(undefinedも含む)にしておく: 新フロントが旧バックエンド(フィールド自体が無い)に
+    // 一時的に繋がっても「日割り -・月換算 -」という半端な表示にならず、素直に非表示になる
+    if (integrityBad || state.apr == null || state.dailyFeeRate == null) {
+      badge.style.visibility = 'hidden';
+      return;
+    }
+    badge.style.visibility = 'visible';
+    // 「・」の前後で改行が入ると狭い列で片方だけが2行目に孤立するため、それぞれをnowrapにする
+    badge.innerHTML =
+      '<span style="white-space:nowrap;">日割り ' + formatUsd(state.dailyFeeRate) + '</span>・' +
+      '<span style="white-space:nowrap;">月換算 ' + formatUsd(state.monthlyFeeRate) + '</span>';
   }
 
   // ---------- セットアップカード ----------
@@ -978,10 +1034,13 @@
       }
       var tr = document.createElement('tr');
       var diffText = formatSignedUsd(e.diffSincePrev) + '(' + e.daysSincePrev + '日)';
+      // 円換算は新しい列を足さず、評価額セルの中に小さな2行目として埋め込む(モバイル幅375pxで
+      // 検証済みのテーブルに列を増やすと崩れるため。レート未保存の行は「-」になる)
+      var jpyLine = '<div class="hint" style="margin-top:0;">' + formatJpy(e.value, e.usdJpyRate) + '</div>';
       tr.innerHTML =
         '<td>' + e.date + '</td>' +
         '<td>' + formatUsd(e.price) + '</td>' +
-        '<td>' + formatUsd(e.value) + '</td>' +
+        '<td>' + formatUsd(e.value) + jpyLine + '</td>' +
         '<td>' + diffText + '</td>' +
         '<td>' + formatUsd(e.unclaimedFee) + '</td>' +
         '<td></td>';
