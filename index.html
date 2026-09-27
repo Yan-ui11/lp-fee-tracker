@@ -253,6 +253,29 @@
     </div>
   </div>
 
+  <!-- 入金フォーム(既存ポジションへの元本追加。出金を記録の直下に配置) -->
+  <div id="depositCard" class="card hidden">
+    <h2>入金を記録</h2>
+    <div class="hint" id="depositDisabledHint"></div>
+    <div id="depositFormBody" class="hidden">
+      <div class="hint" style="margin-bottom:8px;">手順: ①Raydiumで実際に入金 → ②管理メニューでLPトークン数量を確認済みにする → ③⚡または手入力で入金後の評価額を「今日の記録」に<strong>1回だけ</strong>登録 → ④ここで追加した数量を入力してすぐ送信。②を飛ばしても③はエラーになりません(④の確認ダイアログが唯一の安全装置です)。</div>
+      <div class="field">
+        <label>入金日</label>
+        <div id="depositTodayLabel" style="font-size:15px;"></div>
+      </div>
+      <div class="field">
+        <label>追加したSOL数量</label>
+        <input type="number" id="depositSolQty" step="0.0001">
+      </div>
+      <div class="field">
+        <label>追加したUSDC数量</label>
+        <input type="number" id="depositUsdcQty" step="0.01">
+      </div>
+      <div class="preview" id="depositPreview"></div>
+      <button class="primary" id="depositSubmit">入金を記録する</button>
+    </div>
+  </div>
+
   <!-- 記録履歴 -->
   <div id="historyCard" class="card hidden">
     <h2>記録履歴</h2>
@@ -271,7 +294,17 @@
       <thead><tr><th>日付</th><th>金額</th><th>うち手数料分</th><th></th></tr></thead>
       <tbody id="withdrawHistoryBody"></tbody>
     </table>
-    <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。</div>
+    <div class="undo-note">※ 取り消せるのは一番新しい出金1件だけです。その出金より後に日次記録があるときは、先にその記録を取り消してください。入金についても同様の制約があります(直後かつ記録0件のときだけ取り消せます)。</div>
+  </div>
+
+  <!-- 入金履歴 -->
+  <div id="depositHistoryCard" class="card hidden">
+    <h2>入金履歴</h2>
+    <table>
+      <thead><tr><th>日付</th><th>金額</th><th></th></tr></thead>
+      <tbody id="depositHistoryBody"></tbody>
+    </table>
+    <div class="undo-note">※ 取り消せるのは一番新しい入金1件だけです。その入金より後に日次記録があるときは、先にその記録を取り消してください。</div>
   </div>
 
   <!-- 初回セットアップ / 基準を修正。静的な初期位置はここ(最下部、編集モードの定位置と同じ)。
@@ -313,7 +346,7 @@
     </details>
   </div>
 
-  <div id="buildStamp" class="build-stamp">build 2026-09-26 円換算表示+日割り/月換算</div>
+  <div id="buildStamp" class="build-stamp">build 2026-09-27 追加入金</div>
 </div>
 
 <script>
@@ -540,12 +573,14 @@
     renderSetupCard(needsSetup || state.canEditSetup, integrityBad);
     renderEntryCard(!!cur, integrityBad);
     renderWithdrawCard(!!cur, integrityBad);
+    renderDepositCard(!!cur, integrityBad);
 
     var hasData = !!cur;
     el('heroCard').classList.toggle('hidden', !hasData);
     el('compareCard').classList.toggle('hidden', !hasData || entriesInEpoch(cur ? cur.index : -1).length === 0);
     el('historyCard').classList.toggle('hidden', state.entries.length === 0);
     el('withdrawHistoryCard').classList.toggle('hidden', state.withdrawals.length === 0);
+    el('depositHistoryCard').classList.toggle('hidden', (state.deposits || []).length === 0);
 
     if (hasData) {
       el('claimableValue').textContent = formatUsd(state.claimableAmount);
@@ -576,6 +611,7 @@
 
     renderHistory();
     renderWithdrawHistory();
+    renderDepositHistory();
     renderPriceBadges(); // 記録成功直後などにentryPrice/setupPriceの表示が古いまま残らないようにする
   }
 
@@ -842,12 +878,29 @@
       el('entryValue').value = '';
       el('entryPrice').value = '';
       render();
+      maybeShowDepositNudge();
     } catch (e) {
       alert(e.message); // 失敗時はrequestIdを保持したまま(次回リトライで同じIDが飛ぶ)
     } finally {
       btn.disabled = false;
     }
   });
+
+  // 追加入金(④)自体を忘れるリスクへの軽い対策。diffSincePrevが急に増えた場合、追加入金を
+  // した可能性を気づかせる(ブロックはしない)。閾値はcur.v0×5%または$100の小さい方
+  // (diffSincePrevは理論値を通して価格変動の影響が既に差し引かれた値なので、通常の価格変動
+  // ノイズではほとんど反応しない。この閾値でも通常のノイズによる誤発火は起きにくい見込み)。
+  function maybeShowDepositNudge() {
+    var cur = currentEpoch();
+    if (!cur) return;
+    var epEntries = entriesInEpoch(cur.index);
+    var newest = epEntries[epEntries.length - 1];
+    if (!newest || typeof newest.diffSincePrev !== 'number') return;
+    var nudgeThreshold = Math.min(cur.v0 * 0.05, 100);
+    if (newest.diffSincePrev > nudgeThreshold) {
+      el('entryHint').textContent = '前回よりかなり増えています。追加入金をした場合は、この後「入金を記録」からも入金額を登録してください。';
+    }
+  }
 
   // ⚡で埋めた価格・評価額のどちらか一方でも送信前に手で変えたら'手入力'扱いに落とす
   // (ペアの一貫性が崩れたらRaydiumスナップショットとは呼べないため)
@@ -1009,6 +1062,117 @@
     }
   });
 
+  // ---------- 入金カード(既存ポジションへの元本追加) ----------
+
+  function renderDepositCard(show, integrityBad) {
+    el('depositCard').classList.toggle('hidden', !show);
+    if (!show) return;
+    var disabledHintEl = el('depositDisabledHint');
+    var bodyEl = el('depositFormBody');
+    if (integrityBad) {
+      disabledHintEl.textContent = 'データ不整合のため操作できません。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    if (isClosed()) {
+      disabledHintEl.textContent = 'ポジションがクローズされています。先に初期設定を行ってください。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    var todays = todaysLatestEntry();
+    if (!todays) {
+      var cur = currentEpoch();
+      // 実装後レビューで指摘: 直前に追加入金が成功した直後(現エポックがまだ記録0件)は、
+      // 「先に本日の記録を」という文言だと③をもう一度やり直せと読めてしまう。区別して案内する。
+      disabledHintEl.textContent = (cur && cur.kind === '追加入金')
+        ? '入金を記録しました。次に「今日の記録」を入力すると、新しい基準で手数料の計算が続きます(追加でもう一度入金する場合は、先にその記録を入力してください)。'
+        : '先に本日の記録を入力してください(③入金後の評価額を記録してから)。';
+      bodyEl.classList.add('hidden');
+      return;
+    }
+    disabledHintEl.textContent = '';
+    bodyEl.classList.remove('hidden');
+    el('depositTodayLabel').textContent = state.today + '(本日)';
+    renderDepositPreview();
+  }
+
+  // 表示用のプレビューのみ(warning判定はサーバー側で行う。ここではamount/newV0/carryFeeの目安を示すだけ)
+  function computeDepositPreview(solQty, usdcQty) {
+    var todays = todaysLatestEntry();
+    var cur = currentEpoch();
+    if (!todays || !cur) return null;
+    if (typeof solQty !== 'number' || isNaN(solQty)) solQty = 0;
+    if (typeof usdcQty !== 'number' || isNaN(usdcQty)) usdcQty = 0;
+    if (solQty <= 0 && usdcQty <= 0) return null;
+    var amount = solQty * todays.price + usdcQty;
+    if (amount >= todays.value) return { error: '入金額が本日の評価額以上です。③を入金後の評価額で記録してから入力してください。' };
+    var preDepositValue = todays.value - amount;
+    var carryFee = cur.feeCarry + (preDepositValue - cur.v0 * Math.sqrt(todays.price / cur.p0));
+    return { amount: amount, newV0: todays.value, carryFee: carryFee };
+  }
+
+  function renderDepositPreview() {
+    var solQty = parseFloat(el('depositSolQty').value);
+    var usdcQty = parseFloat(el('depositUsdcQty').value);
+    var previewEl = el('depositPreview');
+    var p = computeDepositPreview(solQty, usdcQty);
+    el('depositSubmit').disabled = false;
+    if (!p) {
+      previewEl.textContent = '追加したSOL数量・USDC数量を入力すると内訳が表示されます。';
+      return;
+    }
+    if (p.error) {
+      previewEl.innerHTML = '<span style="color:var(--negative);">※ ' + p.error + '</span>';
+      el('depositSubmit').disabled = true;
+      return;
+    }
+    previewEl.innerHTML =
+      '入金額(USD換算) ' + formatUsd(p.amount) + '<br>' +
+      '入金後の新しい元本: ' + formatUsd(p.newV0) + '<br>' +
+      '入金後の繰越手数料: ' + formatUsd(p.carryFee);
+  }
+
+  el('depositSolQty').addEventListener('input', function () {
+    pendingDepositRequestId = null; // 数量を変えたら別の操作として扱う(冪等性ガードの誤爆防止)
+    renderDepositPreview();
+  });
+  el('depositUsdcQty').addEventListener('input', function () {
+    pendingDepositRequestId = null;
+    renderDepositPreview();
+  });
+
+  var pendingDepositRequestId = null;
+
+  el('depositSubmit').addEventListener('click', async function () {
+    var solQty = parseFloat(el('depositSolQty').value) || 0;
+    var usdcQty = parseFloat(el('depositUsdcQty').value) || 0;
+    if (solQty <= 0 && usdcQty <= 0) { alert('追加したSOL数量またはUSDC数量を入力してください'); return; }
+    if (!confirm('この内容で追加入金を記録します。よろしいですか？')) return;
+
+    if (!pendingDepositRequestId) pendingDepositRequestId = uuidv4();
+    var btn = this;
+    btn.disabled = true;
+    try {
+      // addDepositは既存のPOSTハンドラの「戻り値を無条件にstateへ代入する」パターンから外す。
+      // {warning}だけが返ってきた場合にそのままstateへ代入すると、state.epochsが存在せずrender()が
+      // 例外を出してページが壊れるため(このアプリで唯一、POSTがwarningを返し得るアクション)。
+      var r = await apiPost({ action: 'addDeposit', solQty: solQty, usdcQty: usdcQty, requestId: pendingDepositRequestId, confirmedWarning: false });
+      if (r.warning) {
+        if (!confirm(r.warning + '\nこのまま入金として記録しますか？')) return;
+        r = await apiPost({ action: 'addDeposit', solQty: solQty, usdcQty: usdcQty, requestId: pendingDepositRequestId, confirmedWarning: true });
+      }
+      state = r; // warningが無かった場合、または確認後の再送が成功した場合のみここに来る
+      pendingDepositRequestId = null;
+      el('depositSolQty').value = '';
+      el('depositUsdcQty').value = '';
+      render();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ---------- 記録履歴 ----------
 
   // 基準(エポック)が変わった箇所の説明文言。「累計(この時点)」列が不連続に落ちる/リセットされる
@@ -1018,6 +1182,7 @@
     if (!ep) return '起点';
     if (ep.kind === 'クローズ') return 'クローズ(' + ep.startDate + ')';
     if (ep.kind === '初回') return epochIndex > 1 ? '新しいポジション開始(' + ep.startDate + ')' : '初期設定(' + ep.startDate + ')';
+    if (ep.kind === '追加入金') return '追加入金(' + ep.startDate + ') ここから新しい起点';
     return '出金(' + ep.startDate + ') ここから新しい起点';
   }
 
@@ -1075,9 +1240,12 @@
   // ---------- 出金履歴 ----------
 
   function undoBlockedText(reason) {
-    if (reason === 'not_latest') return 'この出金より新しい出金があるため取り消せません';
-    if (reason === 'epoch_has_entries') return '先に出金後の記録を取り消してください';
+    // not_latest/epoch_has_entriesは出金・入金の両方の取り消し判定で共有される理由コードなので、
+    // 「出金」に限定しない一般化した文言にする(追加入金機能で共有するようになったため)
+    if (reason === 'not_latest') return 'この出金より後に別の操作(出金・入金)が記録されているため取り消せません';
+    if (reason === 'epoch_has_entries') return '先に後続の記録を取り消してください';
     if (reason === 'position_restarted') return '新しいポジションが開始されているため取り消せません';
+    if (reason === 'newer_event') return 'この入金より後に別の操作が記録されているため取り消せません';
     return '';
   }
 
@@ -1110,6 +1278,42 @@
         var reasonDiv = document.createElement('div');
         reasonDiv.className = 'hint';
         reasonDiv.textContent = undoBlockedText(w.undoBlockedReason);
+        actionsTd.appendChild(reasonDiv);
+      }
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ---------- 入金履歴 ----------
+
+  function renderDepositHistory() {
+    var tbody = el('depositHistoryBody');
+    tbody.innerHTML = '';
+    var sorted = (state.deposits || []).slice().reverse();
+    sorted.forEach(function (d) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + d.date + '</td>' +
+        '<td>' + formatUsd(d.amount) + '</td>' +
+        '<td></td>';
+      var actionsTd = tr.lastElementChild;
+      var btn = document.createElement('button');
+      btn.className = 'ghost';
+      btn.textContent = '取り消し';
+      btn.disabled = !d.canUndo;
+      btn.title = d.canUndo ? '' : undoBlockedText(d.undoBlockedReason);
+      btn.addEventListener('click', async function () {
+        if (!confirm('この入金の記録を取り消し、入金前の状態に戻します。よろしいですか？')) return;
+        try {
+          state = await apiPost({ action: 'deleteDeposit', id: d.id });
+          render();
+        } catch (err) { alert(err.message); }
+      });
+      actionsTd.appendChild(btn);
+      if (!d.canUndo) {
+        var reasonDiv = document.createElement('div');
+        reasonDiv.className = 'hint';
+        reasonDiv.textContent = undoBlockedText(d.undoBlockedReason);
         actionsTd.appendChild(reasonDiv);
       }
       tbody.appendChild(tr);
