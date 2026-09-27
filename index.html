@@ -225,10 +225,12 @@
       <div class="col">
         <div>実際の評価額</div>
         <div class="v" id="compareActual">-</div>
+        <div class="hint" id="compareActualJpy"></div>
       </div>
       <div class="col">
         <div>手数料が0だった場合の評価額</div>
         <div class="v" id="compareTheoretical">-</div>
+        <div class="hint" id="compareTheoreticalJpy"></div>
       </div>
     </div>
   </div>
@@ -566,6 +568,10 @@
       var last = curEntries[curEntries.length - 1];
       el('compareActual').textContent = formatUsd(last.value);
       el('compareTheoretical').textContent = formatUsd(last.theoreticalValue);
+      // 円換算はこの記録をした時点のレート(last.usdJpyRate)を使う(そのタイミングの為替、という
+      // 既存の方針と同じ。実際の評価額・理論値は同じ記録のスナップショットなので同じレートを使う)
+      el('compareActualJpy').textContent = formatJpy(last.value, last.usdJpyRate);
+      el('compareTheoreticalJpy').textContent = formatJpy(last.theoreticalValue, last.usdJpyRate);
     }
 
     renderHistory();
